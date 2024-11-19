@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Manager</title>
+    <style>
+        table {
+            border-collapse: collapse;
+            width: 100%;
+        }
+
+        th,
+        td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #f2f2f2;
+            cursor: pointer;
+        }
+
+        /* 保持原有样式 */
+        .search-container {
+            margin-bottom: 20px;
+        }
+
+        .upload-container {
+            margin-bottom: 20px;
+        }
+
+        .breadcrumb-container {
+            margin-bottom: 20px;
+        }
+
+        .folder {
+            cursor: pointer;
+            color: rgb(143, 158, 187);
+        }
+
+        .file {
+            color: rgb(49, 46, 46);
+        }
+
+        .copy-container {
+            margin: 20px;
+        }
+
+        .download-button {
+            display: inline-block;
+            padding: 6px 16px;
+            margin-left: 10px;
+            background-color: #b3d1d6;
+            color: #fff;
+            text-decoration: none;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .download-button:hover {
+            background-color: rgb(112, 158, 207);
+        }
+
+        .copy-button {
+            display: inline-block;
+            padding: 6px 16px;
+            margin-left: 10px;
+            background-color: #007BFF;
+            color: #fff;
+            text-decoration: none;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .copy-button:hover {
+            background-color: #0056b3;
+        }
+
+        .md5-button {
+            display: inline-block;
+            padding: 6px 16px;
+            margin-left: 10px;
+            background-color: #5986a5;
+            color: #fff;
+            text-decoration: none;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .md5-button:hover {
+            background-color: #4d78a7;
+        }
+
+        .popup {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 50%;
+            height: 40%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 9999;
+            border-radius: 5px;
+            padding: 20px;
+            /* 其他样式 */
+        }
+
+        /* 使用Flex布局示例 */
+        .container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        /* .popup {
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 20px;
+            
+        } */
+    </style>
+</head>
+
+<body>
+    <h1>File Manager</h1>
+    <div id="currentPath"></div>
+    <div id="popup" class="popup">
+        <div class="popup-content">
+            <h2>消息</h2>
+            <p id="popup-msg">弹窗内容</p>
+            <button id="close-button">关闭</button>
+        </div>
+    </div>
+
+    <div class="search-container">
+        <input type="text" id="searchInput" placeholder="Search files...">
+        <button onclick="searchFiles()">Search</button>
+    </div>
+
+    <div class="upload-container">
+        <input type="file" id="fileInput">
+        <button onclick="uploadFile()">Upload</button>
+    </div>
+
+    <div class="breadcrumb-container">
+        <div id="breadcrumb"> </div>
+    </div>
+
+    <table id="fileTable">
+        <thead>
+            <tr>
+                <th onclick="sortFiles('name')">Name</th>
+                <th onclick="sortFiles('size')">Size</th>
+                <th onclick="sortFiles('time')">Modified Time</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="fileList"></tbody>
+    </table>
+
+    <script>
+        // let currentDir = '';
+        let currentDir = "";
+        let currentSort = "name";
+        let currentOrder = "desc";
+
+        function downloadFile(filePath) {
+            window.location.href = `/download?file=${encodeURIComponent(filePath)}`;
+        }
+
+        function popup(text) {
+            // 获取弹窗元素和关闭按钮
+            const popup = document.getElementById('popup');
+            const closeButton = document.getElementById('close-button');
+            const popup_msg = document.getElementById("popup-msg");
+            popup_msg.textContent = text;
+
+            // 显示弹窗
+            function showPopup() {
+                popup.style.display = 'flex'; // 或 'block'，根据你的CSS布局
+            }
+            // showPopup()
+
+            // 关闭弹窗
+            function closePopup() {
+                popup.style.display = 'none';
+            }
+
+            // closeButton.onclick = () => closePopup()
+
+            // 定时关闭弹窗
+            function closePopupAfterDelay(delay) {
+                setTimeout(closePopup, delay);
+            }
+
+            // 页面加载时显示弹窗并设置5秒后自动关闭
+            showPopup();
+            // closePopupAfterDelay(5000);
+
+
+            // 点击关闭按钮关闭弹窗
+            closeButton.addEventListener('click', closePopup);
+        }
+
+        function loadDirectory(dir, sort = "time", order = "desc") {
+            currentDir = dir;
+            currentSort = sort;
+            currentOrder = order;
+            console.log(dir)
+            fetch(`/list?dir=${dir}&sort=${sort}&order=${order}`)
+                .then(response => response.json())
+                .then(data => {
+                    const breadcrumb = document.getElementById('breadcrumb')
+                    breadcrumb.textContent = data.current_dir ? data.current_dir : " "
+                    const fileList = document.getElementById('fileList');
+                    fileList.innerHTML = '';
+
+                    // Add parent directory link
+                    if (data.current_dir !== data.parent_dir) {
+                        const parentRow = fileList.insertRow();
+                        const parentCell = parentRow.insertCell();
+                        parentCell.textContent = '..';
+                        parentCell.classList.add('folder');
+                        parentCell.colSpan = 4; // Span across all columns
+                        parentRow.onclick = () => loadDirectory(data.parent_dir);
+                    }
+
+                    // Add files and folders
+                    data.files.forEach(file => {
+                        const row = fileList.insertRow();
+
+                        const nameCell = row.insertCell();
+                        nameCell.textContent = file.name;
+                        nameCell.classList.add(file.is_dir ? 'folder' : 'file');
+
+                        row.insertCell().textContent = file.is_dir ? "-" : formatSize(file.size);
+                        row.insertCell().textContent = new Date(file.mod_time).toLocaleString();
+
+                        const actionsCell = row.insertCell();
+                        let dir_prefix = data.current_dir ? data.current_dir + '/' : ""
+                        if (file.is_dir) {
+                            // nameCell.onclick = () => loadDirectory(data.current_dir + '/' + file.name);
+
+                            nameCell.onclick = () => loadDirectory(dir_prefix + file.name);
+
+                        } else {
+                            const downloadLink = document.createElement("a");
+                            downloadLink.href = `/download?file=${encodeURIComponent(dir_prefix + file.name)}`;
+                            downloadLink.textContent = "Download";
+                            downloadLink.classList = "download-button"
+                            downloadLink.target = "_blank";
+                            actionsCell.appendChild(downloadLink);
+
+                            let link = document.location.host.split(":")[0] + '/' + dir_prefix + file.name
+                            const copyLink = document.createElement("a");
+                            // copyLink.href = `/download?file=${encodeURIComponent(data.current_dir + '/' + file.name)}`;
+                            copyLink.textContent = "Copy";
+                            copyLink.classList = "copy-button"
+                            copyLink.onclick = () => copy(link)
+                            // copyLink.target = "_blank";
+                            actionsCell.appendChild(copyLink);
+
+                            const md5link = document.createElement("a");
+                            md5link.textContent = "MD5";
+                            md5link.classList = "md5-button"
+                            md5link.onclick = () => md5(dir_prefix + file.name)
+                            // md5link.target = "_blank";
+                            actionsCell.appendChild(md5link);
+
+                        }
+                    });
+                });
+        }
+
+
+        function copy(text) {
+            // Attempt to use the Clipboard API for modern, secure copying
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                return navigator.clipboard.writeText(text)
+                    .then(() => {
+                        console.log("Copy success");
+                    })
+                    .catch(err => {
+                        console.error("Copy failed (Clipboard API): ", err);
+                        // Fallback if Clipboard API fails
+                        fallbackCopy(text);
+                    });
+            }
+
+            // Fallback for browsers without Clipboard API or in HTTP environments
+            fallbackCopy(text);
+        }
+
+        function fallbackCopy(text) {
+            const inputElement = document.createElement('input');
+            inputElement.value = text;
+            inputElement.setAttribute('readonly', true); // Prevent unwanted modification
+            document.body.appendChild(inputElement);
+            inputElement.select();
+
+            try {
+                const successful = document.execCommand('copy');
+                const message = successful ? 'Copy successful (fallback)' : 'Copy failed (fallback)';
+                console.log(message);
+                // popup()
+            } catch (err) {
+                console.error("Copy failed (fallback): ", err);
+            } finally {
+                document.body.removeChild(inputElement);
+            }
+        }
+
+        function md5(file) {
+
+            fetch(`/md5?file=${file}`)
+                .then(response => response.json())
+                .then(data => {
+                    // // console.log(data)
+                    // navigator.clipboard.writeText(data.md5sum).then(function() {
+                    //     console.log("Copy success")
+                    // }, function(err) {
+                    //     console.error("Copy failed: ", err);
+                    // });
+                    copy(data.md5sum)
+                    popup(data.md5sum)
+                })
+        }
+        // loadDirectory('');
+
+
+        function sortFiles(sortBy) {
+            const order = sortBy === currentSort && currentOrder === "asc" ? "desc" : "asc";
+            loadDirectory(currentDir, sortBy, order);
+        }
+
+        function formatSize(bytes) {
+            const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+            let i = 0;
+            while (bytes >= 1024 && i < units.length - 1) {
+                bytes /= 1024;
+                i++;
+            }
+            return bytes.toFixed(2) + ' ' + units[i];
+        }
+
+        function uploadFile() {
+            const fileInput = document.getElementById("fileInput");
+            const file = fileInput.files[0];
+            if (!file) {
+                alert("Please select a file to upload");
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append("file", file);
+            formData.append("dir", currentDir);
+
+            fetch("/upload", {
+                method: "POST",
+                body: formData
+            })
+                .then(response => response.text())
+                .then(result => {
+                    alert(result);
+                    loadDirectory(currentDir);
+                })
+                .catch(error => {
+                    console.error("Error:", error);
+                    alert("An error occurred while uploading the file");
+                });
+        }
+
+        function searchFiles() {
+            const query = document.getElementById("searchInput").value;
+            if (!query) {
+                alert("Please enter a search query");
+                return;
+            }
+
+            fetch(`/search?q=${encodeURIComponent(query)}`)
+                .then(response => response.json())
+                .then(data => {
+                    const fileList = document.getElementById("fileList");
+                    const dir_prefix = data.current_dir ? data.current_dir + '/' : ""
+
+                    fileList.innerHTML = "";
+
+                    data.files.forEach(file => {
+
+                        const row = fileList.insertRow();
+
+                        const nameCell = row.insertCell();
+                        nameCell.textContent = file.name;
+                        nameCell.classList.add(file.is_dir ? 'folder' : 'file');
+
+                        row.insertCell().textContent = file.is_dir ? "-" : formatSize(file.size);
+                        row.insertCell().textContent = new Date(file.mod_time).toLocaleString();
+
+                        const actionsCell = row.insertCell();
+                        let dir_prefix = data.current_dir ? data.current_dir + '/' : ""
+                        if (file.is_dir) {
+                            // nameCell.onclick = () => loadDirectory(data.current_dir + '/' + file.name);
+
+                            nameCell.onclick = () => loadDirectory(dir_prefix + file.name);
+
+                        } else {
+                            const downloadLink = document.createElement("a");
+                            downloadLink.href = `/download?file=${encodeURIComponent(dir_prefix + file.name)}`;
+                            downloadLink.textContent = "Download";
+                            downloadLink.classList = "download-button"
+                            downloadLink.target = "_blank";
+                            actionsCell.appendChild(downloadLink);
+
+                            let link = document.location.host.split(":")[0] + '/' + dir_prefix + file.name
+                            const copyLink = document.createElement("a");
+                            // copyLink.href = `/download?file=${encodeURIComponent(data.current_dir + '/' + file.name)}`;
+                            copyLink.textContent = "Copy";
+                            copyLink.classList = "copy-button"
+                            copyLink.onclick = () => copy(link)
+                            // copyLink.target = "_blank";
+                            actionsCell.appendChild(copyLink);
+
+                            const md5link = document.createElement("a");
+                            md5link.textContent = "MD5";
+                            md5link.classList = "md5-button"
+                            md5link.onclick = () => md5(dir_prefix + file.name)
+                            // md5link.target = "_blank";
+                            actionsCell.appendChild(md5link);
+
+                        }
+                    });
+                    document.getElementById("currentPath").textContent = "Search Results";
+                });
+        }
+
+        loadDirectory('');
+    </script>
+</body>
+
+</html>
